@@ -15,6 +15,9 @@ public class Server implements Runnable{
 	//2.建立缓冲区
 	private ByteBuffer readBuf= ByteBuffer.allocate(1024);
 	
+	//建立写缓冲区
+	private ByteBuffer  writeBuf = ByteBuffer.allocate(1024);
+	
 	public Server(int port){
 		try{
 			//1.打开多路复用器
@@ -53,6 +56,8 @@ public class Server implements Runnable{
 							this.accept(key);
 						}else if(key.isReadable()){
 							this.read(key);
+						}else if(key.isWritable()){
+							this.write(key);
 						}
 					}
 				}
@@ -61,7 +66,45 @@ public class Server implements Runnable{
 			}
 		}
 	}
-  
+  private void write(SelectionKey key){
+	  		//1.创建连接的地址
+			InetSocketAddress address  = new InetSocketAddress("127.0.0.1",8766);
+	  		//2.声明连接的通道
+			SocketChannel sc = null;
+			
+			try{
+				//打开通道
+				sc = SocketChannel.open();
+				//连接通道
+				sc.connect(address);
+				while(true){
+					//1.定义一个字节数组，然后使用系统录入功能
+					byte[] bytes = new byte[1024];
+					System.in.read(bytes);
+					
+					//2.把数据放到缓存区
+					writeBuf.put(bytes);
+					//3.对缓存区进行复位
+					writeBuf.flip();
+					//4.写数据到服务端
+					sc.write(writeBuf);
+					//5.清空缓存区数据
+					writeBuf.clear();
+				}
+			}catch(IOException e){
+				e.printStackTrace();
+			}finally{
+				if(sc != null){
+					try {
+						sc.close();
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+				}
+			}
+		
+  }
+	
 	private void read(SelectionKey key){
 		try{
 			//1.清空缓冲区旧的数据
@@ -76,7 +119,7 @@ public class Server implements Runnable{
 				key.cancel();
 				return;
 			}
-			//5.有数据则进行读取 读取之前需要进行buffer的抚慰
+			//5.有数据则进行读取 读取之前需要进行buffer的复位
 			this.readBuf.flip();
 			//6.根据缓存区大小建立相应大小的byte数组，接收缓冲区的数据
 			byte[] bytes = new byte[this.readBuf.remaining()];
@@ -96,9 +139,21 @@ public class Server implements Runnable{
 			ServerSocketChannel ssc = (ServerSocketChannel) key.channel();
 			//2.执行阻塞方法
 			SocketChannel sc = ssc.accept();
-			//3.设置阻塞模式
+			//设置阻塞模式
 			sc.configureBlocking(false);
-			sc.register(this.selector, SelectionKey.OP_READ);
+
+			//1.清空缓冲区旧的数据
+			this.readBuf.clear();
+			//3.读取数据
+			int count = sc.read(this.readBuf);
+			//4.如果没有数据
+			if(count == -1){
+				//4.将客户端管道注册到多路复用器上面
+				sc.register(this.selector, SelectionKey.OP_READ);
+			}else{
+				sc.register(this.selector, SelectionKey.OP_WRITE);
+			}
+			
 		}catch(IOException e){
 			e.printStackTrace();
 		}
